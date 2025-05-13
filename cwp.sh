@@ -1,82 +1,23 @@
 #!/bin/bash
 
-### === FUNÇÕES ===
+# Caminho do arquivo de log
+LOGFILE="/var/log/cwp_install.log"
 
-# Verificar se é root
+# Função para verificar privilégios de root
 check_root() {
   if [ "$EUID" -ne 0 ]; then
     echo "❌ Por favor, execute este script como root."
+    echo "$(date) - ERRO: O script precisa ser executado como root." >> "$LOGFILE"
     exit 1
   fi
 }
 
-# Perguntar o tamanho da swap
-get_swap_size() {
-  echo "🧠 Qual o tamanho desejado para o arquivo de swap (em GB)?"
-  read SWAP_SIZE_GB
-  if ! [[ "$SWAP_SIZE_GB" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-    echo "❌ Por favor, insira um valor numérico válido."
-    exit 1
-  fi
-}
-
-# Perguntar o tamanho do bloco
-get_block_size() {
-  echo "📏 Qual o tamanho do bloco (em MB)? (Ex: 1 para 1MB, 4 para 4MB)"
-  read BLOCK_SIZE_MB
-  if ! [[ "$BLOCK_SIZE_MB" =~ ^[0-9]+$ ]]; then
-    echo "❌ Por favor, insira um valor numérico válido para o tamanho do bloco."
-    exit 1
-  fi
-}
-
-# Desativa swaps antigos
-disable_old_swap() {
-  echo "🔁 Desativando swaps antigos, se houver..."
-  swapoff -a
-}
-
-# Remove swaps antigos do fstab
-remove_old_swap_from_fstab() {
-  echo "🧹 Limpando swaps antigos do /etc/fstab..."
-  sed -i.bak '/swap/d' /etc/fstab
-}
-
-# Cria nova swap
-create_swap() {
-  SWAP_FILE="/swapfile"
-  SWAP_SIZE_BYTES=$(echo "$SWAP_SIZE_GB * 1024 * 1024 * 1024" | bc | awk '{print int($1)}')
-  COUNT=$((SWAP_SIZE_BYTES / (BLOCK_SIZE_MB * 1024 * 1024)))
-
-  echo "🛠️ Criando arquivo de swap com ${SWAP_SIZE_GB}G usando blocos de ${BLOCK_SIZE_MB}MB..."
-  dd if=/dev/zero of=${SWAP_FILE} bs=${BLOCK_SIZE_MB}M count=${COUNT} status=progress || { echo "❌ Erro ao criar o swap."; exit 1; }
-  chmod 600 ${SWAP_FILE}
-  mkswap ${SWAP_FILE}
-}
-
-# Ativa a nova swap
-enable_swap() {
-  echo "⚡ Ativando o arquivo de swap..."
-  swapon ${SWAP_FILE} || { echo "❌ Erro ao ativar o swap."; exit 1; }
-}
-
-# Atualiza o fstab
-update_fstab() {
-  echo "📄 Atualizando /etc/fstab..."
-  echo "${SWAP_FILE} swap swap defaults 0 0" >> /etc/fstab
-}
-
-# Confirma swaps ativos
-verify_swap() {
-  echo "📊 Verificando swaps ativos:"
-  swapon --show
-}
-
-# Define hostname
-# Função para configurar hostname com valor padrão (o atual)
+# Função para configurar o hostname com valor padrão (o atual)
 set_hostname() {
   CURRENT_HOSTNAME=$(hostname)
   echo "🖥️ Hostname atual: $CURRENT_HOSTNAME"
+  echo "$(date) - Hostname atual: $CURRENT_HOSTNAME" >> "$LOGFILE"
+  
   read -p "Digite o novo hostname (ou pressione Enter para manter o atual): " NEW_HOSTNAME
 
   # Se o usuário não digitar nada, mantém o atual
@@ -85,43 +26,84 @@ set_hostname() {
   fi
 
   echo "🔧 Definindo hostname para: $NEW_HOSTNAME"
-  hostnamectl set-hostname "$NEW_HOSTNAME"
+  echo "$(date) - Definindo hostname para: $NEW_HOSTNAME" >> "$LOGFILE"
+  hostnamectl set-hostname "$NEW_HOSTNAME" >> "$LOGFILE" 2>&1
 }
 
-# Instala pacotes essenciais
-install_packages() {
-  echo "📦 Instalando pacotes básicos..."
-  yum install epel-release wget git -y
-  yum update -y
+# Função para configurar o arquivo swap
+get_swap_size() {
+  echo "🧠 Qual o tamanho desejado para o arquivo de swap (em GB)?"
+  echo "$(date) - Perguntando tamanho da swap" >> "$LOGFILE"
+  
+  read SWAP_SIZE_GB
+  if ! [[ "$SWAP_SIZE_GB" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+    echo "❌ Por favor, insira um valor numérico válido."
+    echo "$(date) - ERRO: Valor inválido para swap." >> "$LOGFILE"
+    exit 1
+  fi
+  echo "$(date) - Tamanho da swap selecionado: $SWAP_SIZE_GB GB" >> "$LOGFILE"
 }
 
-# Instala CWP
-install_cwp() {
-  echo "🌐 Instalando o CentOS Web Panel (CWP)..."
-  cd /usr/local/src || exit
-  wget http://centos-webpanel.com/cwp-el9-latest
-  sh cwp-el9-latest
+# Função para configurar o bloco de swap
+get_block_size() {
+  echo "📏 Qual o tamanho do bloco (em MB)?"
+  read BLOCK_SIZE_MB
+  if ! [[ "$BLOCK_SIZE_MB" =~ ^[0-9]+$ ]]; then
+    echo "❌ Por favor, insira um valor numérico válido para o tamanho do bloco."
+    echo "$(date) - ERRO: Valor inválido para o tamanho do bloco." >> "$LOGFILE"
+    exit 1
+  fi
+  echo "$(date) - Tamanho do bloco selecionado: $BLOCK_SIZE_MB MB" >> "$LOGFILE"
 }
 
-# Reinicia o sistema
-reboot_system() {
-  echo "🔁 Reiniciando o sistema em 10 segundos..."
-  sleep 10
-  reboot
+# Criar e ativar swap
+create_swap() {
+  SWAP_FILE="/swapfile"
+  SWAP_SIZE_BYTES=$((SWAP_SIZE_GB * 1024 * 1024 * 1024))
+  COUNT=$((SWAP_SIZE_BYTES / (BLOCK_SIZE_MB * 1024 * 1024)))
+  echo "$(date) - Criando arquivo de swap com ${SWAP_SIZE_GB}G em ${SWAP_FILE}" >> "$LOGFILE"
+  
+  dd if=/dev/zero of=${SWAP_FILE} bs=${BLOCK_SIZE_MB}M count=${COUNT} status=progress >> "$LOGFILE" 2>&1 || { echo "❌ Erro ao criar o swap." && echo "$(date) - ERRO: Falha ao criar o arquivo de swap" >> "$LOGFILE"; exit 1; }
+  
+  chmod 600 ${SWAP_FILE}
+  mkswap ${SWAP_FILE} >> "$LOGFILE" 2>&1
 }
 
-### === EXECUÇÃO EM ORDEM CORRETA ===
+# Ativar o swap
+enable_swap() {
+  echo "⚡ Ativando o arquivo de swap..."
+  swapon ${SWAP_FILE} >> "$LOGFILE" 2>&1 || { echo "❌ Erro ao ativar o swap." && echo "$(date) - ERRO: Falha ao ativar o swap" >> "$LOGFILE"; exit 1; }
+}
 
-check_root
-get_swap_size
-get_block_size
-disable_old_swap
-remove_old_swap_from_fstab
-create_swap
-enable_swap
-update_fstab
-verify_swap
-set_hostname           
-install_packages
-install_cwp
-reboot_system
+# Atualizar /etc/fstab
+update_fstab() {
+  echo "📄 Atualizando /etc/fstab..."
+  if ! grep -q "${SWAP_FILE}" /etc/fstab; then
+    echo "${SWAP_FILE} swap swap defaults 0 0" >> /etc/fstab
+    echo "$(date) - Atualizado /etc/fstab com swap" >> "$LOGFILE"
+  fi
+}
+
+# Definir hostname
+set_hostname
+
+# Instalar pacotes essenciais
+echo "📦 Instalando pacotes essenciais..." >> "$LOGFILE"
+yum install epel-release wget git -y >> "$LOGFILE" 2>&1
+
+# Atualizar todos os pacotes com a opção --allowerasing
+echo "🔄 Atualizando pacotes do sistema..." >> "$LOGFILE"
+yum -y update --allowerasing >> "$LOGFILE" 2>&1
+
+# Instalar o CWP
+echo "🌐 Instalando CWP..." >> "$LOGFILE"
+cd /usr/local/src || exit
+wget http://centos-webpanel.com/cwp-el9-latest >> "$LOGFILE" 2>&1
+sh cwp-el9-latest >> "$LOGFILE" 2>&1
+
+# Reiniciar o sistema
+echo "🔁 Reiniciando o sistema..." >> "$LOGFILE"
+reboot
+
+# Finalizar o log
+echo "$(date) - Instalação concluída." >> "$LOGFILE"
