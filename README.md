@@ -28,5 +28,5 @@ Este repositório contém um script para configurar automaticamente um servidor 
 ```bash
 git clone https://github.com/wellingtonbarrosrosa/cwpinstall.git
 cd cwpinstall
-chmod +x setup_servidor_completo.sh
-sudo ./setup_servidor_completo.sh
+chmod +x cwp.sh
+sudo ./cwp.sh
