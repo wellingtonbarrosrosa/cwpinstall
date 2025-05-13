@@ -73,9 +73,19 @@ verify_swap() {
 }
 
 # Define hostname
+# Função para configurar hostname com valor padrão (o atual)
 set_hostname() {
-  echo "🖥️ Definindo hostname para bewaves.vps-kinghost.net..."
-  hostnamectl set-hostname bewaves.vps-kinghost.net
+  CURRENT_HOSTNAME=$(hostname)
+  echo "🖥️ Hostname atual: $CURRENT_HOSTNAME"
+  read -p "Digite o novo hostname (ou pressione Enter para manter o atual): " NEW_HOSTNAME
+
+  # Se o usuário não digitar nada, mantém o atual
+  if [ -z "$NEW_HOSTNAME" ]; then
+    NEW_HOSTNAME=$CURRENT_HOSTNAME
+  fi
+
+  echo "🔧 Definindo hostname para: $NEW_HOSTNAME"
+  hostnamectl set-hostname "$NEW_HOSTNAME"
 }
 
 # Instala pacotes essenciais
